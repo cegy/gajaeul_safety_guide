@@ -76,4 +76,9 @@ if uploaded:
 
 ※ 상세 시간표와 숙소 배정은 학교 사정에 따라 변동될 수 있습니다.
 """
-    st.code(parent_note,_
+    st.code(parent_note, language="markdown")
+    st.download_button("안내문 .txt 다운로드", parent_note.encode("utf-8"),
+                       file_name="parent_note.txt", mime="text/plain")
+
+else:
+    st.info("왼쪽에서 PDF를 업로드하면 요약 안내가 생성됩니다.")
