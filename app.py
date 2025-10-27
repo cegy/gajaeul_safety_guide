@@ -3,14 +3,19 @@ import re
 import pdfplumber
 import pandas as pd
 import streamlit as st
+from pathlib import Path
 
-# ------------------------------
-# Page setup (상큼한 톤)
-# ------------------------------
+# =========================
+# 설정
+# =========================
+PDF_PATH = Path("2025학년도 1학년 수련활동 사전안전교육(배부용).pdf")  # 첨부 파일명 그대로 사용
+
+# =========================
+# 상큼한 스타일 세팅
+# =========================
 st.set_page_config(page_title="가재울 1학년 수련활동 · 보기 쉽게", page_icon="🍊", layout="wide")
 st.markdown("""
 <style>
-/* 상큼한 느낌의 살짝 파스텔 톤 */
 :root { --accent: #FF9E80; --accent2: #80CBC4; --chip: #FFE7DF; }
 .block-container { padding-top: 1.4rem; }
 h1, h2, h3 { letter-spacing: .3px; }
@@ -18,29 +23,29 @@ h1, h2, h3 { letter-spacing: .3px; }
 .stTabs [data-baseweb="tab-list"] { gap: .4rem; }
 .stTabs [data-baseweb="tab"] { background: #fff; border-radius: 12px; padding: .6rem .9rem; border: 1px solid #eee; }
 .stTabs [aria-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px #fff inset; }
-.code-like { background:#fff; border:1px solid #eee; border-radius:12px; padding:.75rem 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.code-like { background:#fff; border:1px solid #eee; border-radius:12px; padding:.75rem 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
 .kv { display:grid; grid-template-columns: 120px 1fr; gap:.4rem .8rem; align-items:center; }
 .kv .k { color:#666; }
 .badge { display:inline-block; background:var(--chip); border-radius:999px; padding:.2rem .6rem; margin:.15rem .2rem 0 0; font-size:.9rem; }
 .card { border:1px solid #eee; border-radius:16px; padding:1rem; background:#fff; }
-hr.soft { border:none; border-top:1px dashed #eee; margin:.9rem 0; }
+hr.soft { border:none; border-top:1px dashed #eee; margin:1.0rem 0; }
 .small { color:#777; font-size:.92rem; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🍊 2025학년도 1학년 수련활동 · 보기 쉽게")
-st.caption("배부용 PDF를 업로드하면 일정·숙소·집합, 준비물/금지물품, 준수사항, 안전교육(①~⑥), 프로그램(3일), 숙소 배정을 한눈에 정리해 드립니다.")
+st.caption("첨부된 배부용 PDF를 그대로 분석해 일정·숙소·집합, 준비물/금지물품, 준수사항, 안전교육(①~⑥), 프로그램(3일), 숙소 배정을 상큼하게 정리해 보여줍니다.")
 
-# ------------------------------
-# Utils
-# ------------------------------
+# =========================
+# 유틸 함수
+# =========================
 @st.cache_data(show_spinner=False)
-def extract_text(file_bytes: bytes) -> str:
-    parts = []
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+def extract_text_from_pdf(pdf_path: Path) -> str:
+    text_parts = []
+    with pdfplumber.open(str(pdf_path)) as pdf:
         for p in pdf.pages:
-            parts.append(p.extract_text() or "")
-    return "\n".join(parts)
+            text_parts.append(p.extract_text() or "")
+    return "\n".join(text_parts)
 
 def _clean(txt: str) -> str:
     return re.sub(r"\u00a0", " ", txt).strip()
@@ -113,11 +118,10 @@ def parse_doc(txt: str) -> dict:
 
     # ----- 프로그램(1~3일차) -----
     scheduleBlock = _match_block(t, r"1일차[\s\S]*?숙소\s*정리\s*및\s*취침")
-    # 일부 문서에선 3일차 '숙소 정리 및 취침'이 중복/누락될 수 있어 위 패턴 보완
     if not scheduleBlock:
         scheduleBlock = _match_block(t, r"1일차[\s\S]*?3일차[\s\S]*?(숙소\s*정리\s*및\s*취침)?")
 
-    # 키워드 하이라이트용 추출(가벼운 Rule)
+    # 하이라이트 키워드(가벼운 룰 기반)
     programHighlights = []
     if scheduleBlock:
         hot = [
@@ -176,99 +180,97 @@ def pills(items):
     if not items: return
     st.markdown("".join([f"<span class='badge'>{x}</span>" for x in items]), unsafe_allow_html=True)
 
-# ------------------------------
-# UI
-# ------------------------------
-uploaded = st.file_uploader("배부용 PDF 업로드", type=["pdf"])
+# =========================
+# 본문 렌더링
+# =========================
+if not PDF_PATH.exists():
+    st.error(f"PDF 파일을 찾을 수 없습니다: {PDF_PATH.name}\n\napp.py와 같은 폴더에 PDF를 두고 실행해 주세요.")
+    st.stop()
 
-if not uploaded:
-    st.info("상단에서 PDF를 업로드해 주세요. (이미지 스캔 PDF는 텍스트 추출이 어려울 수 있어요)")
-else:
-    file_bytes = uploaded.read()
-    with st.spinner("PDF 텍스트 추출 중..."):
-        raw_text = extract_text(file_bytes)
+with st.spinner("PDF 텍스트 추출 중..."):
+    raw_text = extract_text_from_pdf(PDF_PATH)
 
-    with st.spinner("문서 구조 분석 중..."):
-        data = parse_doc(raw_text)
+with st.spinner("문서 구조 분석 중..."):
+    data = parse_doc(raw_text)
 
-    # ===== 상단 핵심 카드 =====
-    st.subheader("🍃 기본 계획")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("일정", data["tripRange"] or "미탐지")
-        st.caption("문서의 <기본 계획>에서 추출")
-    with c2:
-        st.metric("숙소", data["lodging"] or "미탐지")
-        st.caption("숙소명 / 연락처")
-    with c3:
-        st.metric("집합", (data["meetTime"] or "미탐지"))
-        st.caption(f"장소: {data['meetPlace'] or '미탐지'}")
+# ===== 상단 핵심 카드 =====
+st.subheader("🍃 기본 계획")
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.metric("일정", data["tripRange"] or "미탐지")
+    st.caption("문서의 <기본 계획>에서 추출")
+with c2:
+    st.metric("숙소", data["lodging"] or "미탐지")
+    st.caption("숙소명 / 연락처")
+with c3:
+    st.metric("집합", data["meetTime"] or "미탐지")
+    st.caption(f"장소: {data['meetPlace'] or '미탐지'}")
 
-    st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
+st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
 
-    # ===== 탭 =====
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "🧳 준비물·금지물품", "✅ 준수사항", "🛡 안전교육(①~⑥)", "📖 프로그램(3일)", "🏠 숙소 배정", "📎 부록"
-    ])
+# ===== 탭 =====
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🧳 준비물·금지물품", "✅ 준수사항", "🛡 안전교육(①~⑥)", "📖 프로그램(3일)", "🏠 숙소 배정", "📎 부록"
+])
 
-    with tab1:
-        colA, colB = st.columns(2)
-        with colA:
-            df_or_empty("📝 필수 준비물", data["required"])
-        with colB:
-            df_or_empty("🚫 반입 금지 물품", data["banned"])
+with tab1:
+    colA, colB = st.columns(2)
+    with colA:
+        df_or_empty("📝 필수 준비물", data["required"])
+    with colB:
+        df_or_empty("🚫 반입 금지 물품", data["banned"])
 
-    with tab2:
-        st.markdown("### 학생 기본 준수사항")
-        if data["rules"]:
-            for i, r in enumerate(data["rules"], 1):
-                st.markdown(f"{i}. {r}")
-        else:
-            st.info("문서에서 '학생 기본 준수사항' 섹션을 찾지 못했습니다.")
+with tab2:
+    st.markdown("### 학생 기본 준수사항")
+    if data["rules"]:
+        for i, r in enumerate(data["rules"], 1):
+            st.markdown(f"{i}. {r}")
+    else:
+        st.info("문서에서 '학생 기본 준수사항' 섹션을 찾지 못했습니다.")
 
-    with tab3:
-        st.markdown("### 안전사고 예방 교육 (①~⑥)")
-        if data["safetyParts"]:
-            for k, v in data["safetyParts"].items():
-                with st.expander(k, expanded=False):
-                    for it in v:
-                        st.markdown(f"- {it}")
-        else:
-            st.info("문서에서 '안전사고 예방 교육' 섹션을 찾지 못했습니다.")
-        if data["sexualViolenceTips"]:
-            st.markdown("### ※ 성폭력 예방")
-            for it in data["sexualViolenceTips"]:
-                st.markdown(f"- {it}")
+with tab3:
+    st.markdown("### 안전사고 예방 교육 (①~⑥)")
+    if data["safetyParts"]:
+        for k, v in data["safetyParts"].items():
+            with st.expander(k, expanded=False):
+                for it in v:
+                    st.markdown(f"- {it}")
+    else:
+        st.info("문서에서 '안전사고 예방 교육' 섹션을 찾지 못했습니다.")
+    if data["sexualViolenceTips"]:
+        st.markdown("### ※ 성폭력 예방")
+        for it in data["sexualViolenceTips"]:
+            st.markdown(f"- {it}")
 
-    with tab4:
-        st.markdown("### 원문 블록")
-        st.markdown("<div class='code-like'>"+(data["scheduleBlock"] or "시간표 원문 블록을 탐지하지 못했습니다.")+"</div>", unsafe_allow_html=True)
-        st.markdown("### 하이라이트")
-        if data["programHighlights"]:
-            pills(data["programHighlights"])
-        else:
-            st.info("하이라이트 키워드를 찾지 못했습니다. (문서 포맷 차이 가능)")
+with tab4:
+    st.markdown("### 원문 블록")
+    st.markdown("<div class='code-like'>"+(data["scheduleBlock"] or "시간표 원문 블록을 탐지하지 못했습니다.")+"</div>", unsafe_allow_html=True)
+    st.markdown("### 하이라이트")
+    if data["programHighlights"]:
+        pills(data["programHighlights"])
+    else:
+        st.info("하이라이트 키워드를 찾지 못했습니다. (문서 포맷 차이 가능)")
 
-    with tab5:
-        st.markdown("### 원문 블록")
-        st.markdown("<div class='code-like'>"+(data["roomBlock"] or "숙소 배정 원문 블록을 탐지하지 못했습니다.")+"</div>", unsafe_allow_html=True)
-        if data["roomSummary"]:
-            st.markdown("### 반별 요약")
-            st.dataframe(pd.DataFrame(data["roomSummary"]), use_container_width=True, hide_index=True)
-        else:
-            st.info("반별 요약을 생성하지 못했습니다. (표/줄바꿈 포맷 차이 가능)")
+with tab5:
+    st.markdown("### 원문 블록")
+    st.markdown("<div class='code-like'>"+(data["roomBlock"] or "숙소 배정 원문 블록을 탐지하지 못했습니다.")+"</div>", unsafe_allow_html=True)
+    if data["roomSummary"]:
+        st.markdown("### 반별 요약")
+        st.dataframe(pd.DataFrame(data["roomSummary"]), use_container_width=True, hide_index=True)
+    else:
+        st.info("반별 요약을 생성하지 못했습니다. (표/줄바꿈 포맷 차이 가능)")
 
-    with tab6:
-        if data["appendixBlock"]:
-            st.markdown("### 부록(학교폭력의 유형 등)")
-            st.markdown("<div class='code-like'>"+data["appendixBlock"]+"</div>", unsafe_allow_html=True)
-        else:
-            st.info("부록 섹션을 탐지하지 못했습니다.")
+with tab6:
+    if data["appendixBlock"]:
+        st.markdown("### 부록(학교폭력의 유형 등)")
+        st.markdown("<div class='code-like'>"+data["appendixBlock"]+"</div>", unsafe_allow_html=True)
+    else:
+        st.info("부록 섹션을 탐지하지 못했습니다.")
 
-    # ===== 내려받기(학부모 안내문 초안) =====
-    st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
-    st.subheader("👨‍👩‍👧 학부모 안내문 초안")
-    parent_note = f"""[가정 통신문 안내]
+# ===== 내려받기(학부모 안내문 초안) =====
+st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
+st.subheader("👨‍👩‍👧 학부모 안내문 초안")
+parent_note = f"""[가정 통신문 안내]
 
 1. 일정: {data['tripRange'] or '(문서에서 탐지)'}
 2. 숙소: {data['lodging'] or '(문서에서 탐지)'}
@@ -279,10 +281,10 @@ else:
 
 ※ 상세 시간표와 숙소 배정은 학교 사정에 따라 변경될 수 있습니다.
 """
-    st.code(parent_note, language="markdown")
-    st.download_button("안내문 .txt 다운로드", parent_note.encode("utf-8"),
-                       file_name="parent_note.txt", mime="text/plain")
+st.code(parent_note, language="markdown")
+st.download_button("안내문 .txt 다운로드", parent_note.encode("utf-8"),
+                   file_name="parent_note.txt", mime="text/plain")
 
-    # 디버그용 원문 텍스트 전체 보기
-    with st.expander("🔎 원문 전체 텍스트 보기 (디버그용)"):
-        st.text(raw_text)
+# 디버그용 원문 텍스트 보기
+with st.expander("🔎 원문 전체 텍스트 (디버그용)"):
+    st.text(raw_text)
