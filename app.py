@@ -6,7 +6,7 @@ import io
 import textwrap
 
 st.set_page_config(
-    page_title="1학년 수련활동 사전안전교육",
+    page_title="1학년 수련활동 안내 자료",
     page_icon="🏕️",
     layout="wide",
 )
@@ -182,7 +182,7 @@ def markdown_student_handout() -> str:
 # -----------------------
 with st.sidebar:
     st.title("🏕️ 수련활동 대시보드")
-    st.caption("2025학년도 1학년 사전안전교육(배부용)")
+    st.caption("2025학년도 1학년 수련활동 안내")
     page = st.radio("메뉴", ["개요", "체크리스트", "일정표", "안전수칙", "숙소 배정", "다운로드"])
     st.divider()
     st.info("날짜: 2025-10-27(월) ~ 10-29(수)\n장소: 청포대썬셋수련원")
@@ -201,7 +201,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.markdown('<div class="big-title">2025학년도 1학년 수련활동 사전안전교육</div>', unsafe_allow_html=True)
+st.markdown('<div class="big-title">2025학년도 1학년 수련활동 안내</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub">학생·보호자·교사용 안내를 한 곳에서 확인하세요.</div>', unsafe_allow_html=True)
 st.divider()
 
@@ -288,4 +288,4 @@ elif page == "다운로드":
 
 # 푸터
 st.divider()
-st.caption("© 2025 수련활동 사전안전교육 • 본 대시보드는 배부용 문서를 바탕으로 구성되었습니다.")
+st.caption("© 2025 수련활동 안내 자료 • 본 대시보드는 배부용 문서를 바탕으로 구성되었습니다.")
