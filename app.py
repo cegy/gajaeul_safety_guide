@@ -1,290 +1,291 @@
-import io
-import re
-import pdfplumber
-import pandas as pd
+# streamlit_app.py
 import streamlit as st
-from pathlib import Path
+import pandas as pd
+from datetime import datetime
+import io
+import textwrap
 
-# =========================
-# 설정
-# =========================
-PDF_PATH = Path("2025학년도 1학년 수련활동 사전안전교육(배부용).pdf")  # 첨부 파일명 그대로 사용
+st.set_page_config(
+    page_title="1학년 수련활동 사전안전교육",
+    page_icon="🏕️",
+    layout="wide",
+)
 
-# =========================
-# 상큼한 스타일 세팅
-# =========================
-st.set_page_config(page_title="가재울 1학년 수련활동 · 보기 쉽게", page_icon="🍊", layout="wide")
-st.markdown("""
-<style>
-:root { --accent: #FF9E80; --accent2: #80CBC4; --chip: #FFE7DF; }
-.block-container { padding-top: 1.4rem; }
-h1, h2, h3 { letter-spacing: .3px; }
-.metric-label { color:#666 !important; }
-.stTabs [data-baseweb="tab-list"] { gap: .4rem; }
-.stTabs [data-baseweb="tab"] { background: #fff; border-radius: 12px; padding: .6rem .9rem; border: 1px solid #eee; }
-.stTabs [aria-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px #fff inset; }
-.code-like { background:#fff; border:1px solid #eee; border-radius:12px; padding:.75rem 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
-.kv { display:grid; grid-template-columns: 120px 1fr; gap:.4rem .8rem; align-items:center; }
-.kv .k { color:#666; }
-.badge { display:inline-block; background:var(--chip); border-radius:999px; padding:.2rem .6rem; margin:.15rem .2rem 0 0; font-size:.9rem; }
-.card { border:1px solid #eee; border-radius:16px; padding:1rem; background:#fff; }
-hr.soft { border:none; border-top:1px dashed #eee; margin:1.0rem 0; }
-.small { color:#777; font-size:.92rem; }
-</style>
-""", unsafe_allow_html=True)
+# -----------------------
+# 기본 데이터 (문서에서 발췌·구조화)
+# -----------------------
+BASIC_INFO = {
+    "일정": "2025-10-27(월) ~ 2025-10-29(수), 2박 3일",
+    "숙소": "청포대썬셋수련원",
+    "숙소 연락처": "041-674-9393",
+    "집합 일시": "2025-10-27(월) 08:00",
+    "집합 장소": "각 학급 교실",
+    "버스 탑승": "08:30 (학교 인근)"
+}
 
-st.title("🍊 2025학년도 1학년 수련활동 · 보기 쉽게")
-st.caption("첨부된 배부용 PDF를 그대로 분석해 일정·숙소·집합, 준비물/금지물품, 준수사항, 안전교육(①~⑥), 프로그램(3일), 숙소 배정을 상큼하게 정리해 보여줍니다.")
+REQUIRED_ITEMS = [
+    "개인 물병(텀블러 등, 정수기 이용 시 필요)",
+    "편안한 운동화",
+    "우천·저온 대비: 우산/우의, 방한복(바람막이 등)",
+    "휴대전화 및 충전기",
+    "자외선 차단제(선크림)",
+    "세면도구(비누·치약·칫솔·샴푸 등)",
+    "수건 충분히(제공되지 않음)",
+    "여벌옷 충분히",
+    "해변 체험용 복장(어두운 색 상·하의, 두꺼운 양말, 샌들/아쿠아슈즈 등)",
+    "개인 상비약(멀미약·알레르기약·소화제·진통제·평소 복용약 등)",
+    "필기도구",
+    "그 외 개인용품"
+]
 
-# =========================
-# 유틸 함수
-# =========================
-@st.cache_data(show_spinner=False)
-def extract_text_from_pdf(pdf_path: Path) -> str:
-    text_parts = []
-    with pdfplumber.open(str(pdf_path)) as pdf:
-        for p in pdf.pages:
-            text_parts.append(p.extract_text() or "")
-    return "\n".join(text_parts)
+BANNED_ITEMS = [
+    "과다한 현금",
+    "고가 전자기기·귀중품",
+    "과도한 액세서리, 노출이 과한 의상",
+    "흉기류(유사품 포함), 인화성 물질",
+    "위험물(칼·가위·본드·부탄가스·라이터·폭죽 등)",
+    "사행성 도구(화투·카드놀이 등)",
+    "주류, (전자)담배 등 청소년 금지 약물",
+]
 
-def _clean(txt: str) -> str:
-    return re.sub(r"\u00a0", " ", txt).strip()
+STUDENT_RULES = [
+    "일정표 시간 숙지·준수",
+    "활동 중 휴대폰 사용 등 개인행동 자제, 프로그램 집중",
+    "음주·흡연·도박 금지(위반 시 학교 규정에 따라 징계)",
+    "인솔교사·진행자 지도사항 준수",
+    "바른 언행·단정한 복장",
+    "숙소 내 과도한 소음·난동 금지",
+    "버스 탑승 즉시 안전벨트 착용, 좌석 이동 금지",
+    "타인의 물건을 허락 없이 만지지 않기",
+]
 
-def _pick(text: str, pattern: str, grp: int = 1) -> str:
-    m = re.search(pattern, text)
-    return (m.group(grp).strip() if m else "")
+HEALTH_NOTES = [
+    "신체 허약·복용약 학생은 사전에 교사에게 알림",
+    "수련 중 대비하여 미리 병원 치료/약 처방",
+    "개인 비상약 지참(멀미약 별도 제공 없음)",
+    "활동하기 편한 복장·신발(슬리퍼·구두 지양)",
+]
 
-def _match_block(text: str, pattern: str) -> str:
-    m = re.search(pattern, text)
-    return m.group(0) if m else ""
+SAFETY_SECTIONS = {
+    "도보 이동": [
+        "신호 준수, 차량 완전 정지 확인 후 횡단",
+        "도보 중 휴대폰·이어폰 금지",
+        "인도 이용, 인도/차도 구분 없으면 가장자리 보행",
+        "단체 이동 시 무리에서 이탈 금지, 교통법규 준수",
+    ],
+    "버스 이동": [
+        "출발 전 안전벨트 이상 유무 확인 후 착용",
+        "이동 중 자리 이동 금지, 창문 밖으로 신체 내밀지 않기",
+        "멀미 시 승차 전 예방약 복용, 필요 시 환기",
+        "버스 내 화재 시 큰 소리로 알리고 신속 대처",
+        "문 탈출 곤란 시 비상망치로 유리 파괴 후 탈출",
+    ],
+    "숙소 안전": [
+        "비상 대피요령·대피경로 확인",
+        "시설물 안전 설치 여부 확인, 비품 원상 유지",
+        "정해진 시간 이후 무단이탈 금지",
+        "취침시간 준수, 분쟁 발생 시 즉시 교사에게 알림",
+        "화재 시 젖은 수건으로 몸을 낮춰 대피, 소화기·소화전 위치·사용법 숙지",
+    ],
+    "식품 안전": [
+        "체험 후·식사 전 비누로 손 씻기",
+        "식품 알레르기 학생은 사전 신고 및 해당 음식 비섭취",
+        "상온에서 상하기 쉬운 음식·간식 반입 지양",
+        "유통기한·보관상태 불량 식품 섭취 금지",
+        "식중독 의심(설사·복통·발열·두통)이 2명 이상 발생 시 즉시 교사에게 보고",
+    ],
+    "폭력·도난 예방": [
+        "폭력·심한 장난 금지, 질서·배려",
+        "불필요한 귀중품 지참 지양, 필요 시 교사에게 보관",
+    ],
+    "성폭력 예방": [
+        "어두운·후미진 장소 출입 금지, 문단속 철저",
+        "원치 않는 상황은 명확히 거절 의사표시",
+        "피해 시 즉시 신뢰할 수 있는 어른/교사에게 신고",
+        "피해 사실·경과를 육하원칙에 따라 기록",
+    ],
+    "학교폭력 유형(요약)": [
+        "신체폭력(상해·폭행·감금·약취·유인·과한 장난 등)",
+        "언어폭력(명예훼손·모욕·협박 등)",
+        "금품갈취(공갈·상습적 대여 미반환 등)",
+        "강요(빵·와이파이 셔틀, 대행·심부름 강요 등)",
+        "따돌림(의도적·반복적 배제, 조롱·골탕·비웃기 등)",
+        "성희롱·성폭력(강제 성행위·신체 접촉·성적 발언 등)",
+        "사이버폭력(모욕·허위정보 유포·협박·따돌림·영상유포 등)",
+    ],
+}
 
-def _bullet_items(block: str):
-    if not block: return []
-    items = re.split(r"\n\s*[-•·]\s*", block)[1:]
-    return [re.sub(r"\s+", " ", x).strip() for x in items if x.strip()]
+# 일정표
+schedule_data = [
+    {"일자": "10/27(월)", "시간대": "08:00~", "활동": "집합(각 교실), 버스 탑승 08:30"},
+    {"일자": "10/27(월)", "시간대": "점심", "활동": "수련원 도착 / 점심"},
+    {"일자": "10/27(월)", "시간대": "오후", "활동": "숙소배정·생활안내(소방·안전), 해변 체험(맛조개 잡기·트레킹)"},
+    {"일자": "10/27(월)", "시간대": "저녁~밤", "활동": "레크리에이션·장기자랑·캠프파이어"},
+    {"일자": "10/28(화)", "시간대": "오전", "활동": "기상·아침 식사, 명랑운동회 / 사진 미션 페스티벌"},
+    {"일자": "10/28(화)", "시간대": "오후", "활동": "Smart Lan Media Balance Quiz Show, 해솔길 트레킹(우천 시 실내 대체)"},
+    {"일자": "10/28(화)", "시간대": "저녁~밤", "활동": "저녁, 취침"},
+    {"일자": "10/29(수)", "시간대": "오전~점심", "활동": "기상·아침, 소감문 작성, 점심 후 학교로 출발"},
+]
+schedule_df = pd.DataFrame(schedule_data)
 
-def _dash_items(block: str):
-    if not block: return []
-    return [ln.strip("- ").strip() for ln in block.splitlines() if ln.strip().startswith("-")]
+# 숙소 배정 (표시는 간략/원문 반영)
+dorm_rows = [
+    ("1반", "벨 201(남6), 202(남6)", "오션B 201(여3), 202(여8), 205(여3)"),
+    ("2반", "벨 203(남6)", "오션B 101(여5), 102(여5), 103(여5)"),
+    ("3반", "벨 204(남5), 205(남5)", "오션C 101(여6), 102(여5)"),
+    ("4반", "필드 105(남4), 벨 206(남5)", "오션C 103(여4), 201(여3)"),
+    ("5반", "필드 106(남4), 벨 207(남5)", "오션C 105(여5), 202(여7)"),
+    ("6반", "벨 208(남6), 209(남5)", "오션D 101(여6), 102(여5), 103(여5)"),
+    ("7반", "벨 210(남6), 211(남6)", "오션D 105(여6), 201(여3), 205(여3)"),
+    ("8반", "오션A 201(남4)", "필드 101(여1)"),
+]
+dorm_df = pd.DataFrame(dorm_rows, columns=["반", "남학생 객실", "여학생 객실"])
 
-def parse_doc(txt: str) -> dict:
-    t = _clean(txt)
 
-    # ----- 기본 계획 -----
-    tripRange = _pick(t, r"일정\s*[:：]\s*([0-9.\-()~\s,]+)")
-    lodging   = _pick(t, r"숙소\s*정보\s*[:：]\s*([^\n]+)")                # 예: 청포대썬셋수련원 / 041-674-9393
-    meetTime  = _pick(t, r"집합\s*일시\s*[:：]\s*([^\n]+)")                # 예: 2025년 10월 27일(월) 08:00
-    meetPlace = _pick(t, r"집합\s*장소\s*[:：]\s*([^\n]+)")                # 예: 각 학급 교실
+# -----------------------
+# 유틸: 파일 다운로드 컨텐츠 생성
+# -----------------------
+def to_csv_bytes(df: pd.DataFrame) -> bytes:
+    return df.to_csv(index=False).encode("utf-8-sig")
 
-    # ----- 준비물 / 금지물품 -----
-    required, banned = [], []
-    if "필수품" in t and "규제 대상 물건" in t:
-        after_req = t.split("필수품", 1)[1]
-        before_ban = after_req.split("규제 대상 물건", 1)[0]
-        required = _bullet_items(before_ban)
+def markdown_student_handout() -> str:
+    md = f"""# 1학년 수련활동 안내(학생 배부용)
 
-        after_ban = t.split("규제 대상 물건", 1)[1]
-        banned_blk = re.split(r"(학생\s*기본\s*준수사항|5\.\s*학생\s*기본\s*준수사항|<안전사고\s*예방\s*교육>)", after_ban)[0]
-        banned = _bullet_items(banned_blk)
+**일정**: {BASIC_INFO['일정']}  
+**숙소**: {BASIC_INFO['숙소']} (☎ {BASIC_INFO['숙소 연락처']})  
+**집합**: {BASIC_INFO['집합 일시']} / {BASIC_INFO['집합 장소']}  
+**버스 탑승**: {BASIC_INFO['버스 탑승']}
 
-    # ----- 학생 기본 준수사항 (가.~하.) -----
-    rulesBlock = _match_block(t, r"학생\s*기본\s*준수사항[\s\S]*?(?=\n\s*\d+\.\s|<안전사고\s*예방\s*교육>|$)")
-    rules = []
-    if rulesBlock:
-        rules = [x for x in re.split(r"\n\s*[가-하]\.\s*", rulesBlock)[1:] if x.strip()]
-        rules = [re.sub(r"\s+", " ", x).strip() for x in rules]
+---
 
-    # ----- 안전사고 예방 교육 (①~⑥) -----
-    safetyBlock = _match_block(t, r"<안전사고\s*예방\s*교육>[\s\S]*?(?=\n\s*※|$)")
-    safetyParts = {}
-    if safetyBlock:
-        def slice_between(src, start, end=None):
-            a = src.find(start)
-            if a < 0: return ""
-            if end:
-                b = src.find(end, a + len(start))
-                return src[a+len(start): b if b > -1 else None]
-            return src[a+len(start):]
-        safetyParts["① 도보 이동 시"] = _dash_items(slice_between(safetyBlock, "① 도보 이동 시", "②"))
-        safetyParts["② 버스 이동 시"] = _dash_items(slice_between(safetyBlock, "② 버스 이동 시", "③"))
-        safetyParts["③ 숙소 안전"]   = _dash_items(slice_between(safetyBlock, "③ 숙소 안전", "④"))
-        safetyParts["④ 식품 안전"]   = _dash_items(slice_between(safetyBlock, "④ 식품 안전", "⑤"))
-        safetyParts["⑤ 폭력으로부터 안전"] = _dash_items(slice_between(safetyBlock, "⑤ 폭력으로부터 안전", "⑥"))
-        safetyParts["⑥ 도난으로부터 안전"] = _dash_items(slice_between(safetyBlock, "⑥ 도난으로부터 안전", "※"))
+## 준비물 (필수)
+- """ + "\n- ".join(REQUIRED_ITEMS) + """
 
-    # ※ 성폭력 예방
-    sexual_block = _match_block(t, r"※\s*성폭력\s*예방[\s\S]*?(?=\n\s*\[|$)")
-    sexualViolenceTips = _dash_items(sexual_block) if sexual_block else []
+## 반입 금지 물품
+- """ + "\n- ".join(BANNED_ITEMS) + """
 
-    # ----- 프로그램(1~3일차) -----
-    scheduleBlock = _match_block(t, r"1일차[\s\S]*?숙소\s*정리\s*및\s*취침")
-    if not scheduleBlock:
-        scheduleBlock = _match_block(t, r"1일차[\s\S]*?3일차[\s\S]*?(숙소\s*정리\s*및\s*취침)?")
+## 학생 준수사항
+- """ + "\n- ".join(STUDENT_RULES) + """
 
-    # 하이라이트 키워드(가벼운 룰 기반)
-    programHighlights = []
-    if scheduleBlock:
-        hot = [
-            "대형젠가", "미션페스티벌", "사진작가", "맛조개", "해변 트레킹",
-            "명랑 운동회", "레크리에이션", "장기자랑", "캠프파이어",
-            "Balance Quiz", "해솔길", "도전 골든벨", "도미노", "한마음 한뜻"
-        ]
-        lines = [ln.strip() for ln in scheduleBlock.splitlines() if ln.strip()]
-        for h in hot:
-            if any(h in ln for ln in lines):
-                programHighlights.append(h)
-        programHighlights = sorted(set(programHighlights))
+## 건강 관리 유의
+- """ + "\n- ".join(HEALTH_NOTES) + """
 
-    # ----- 숙소 배정 -----
-    roomBlock = _match_block(t, r"학생\s*숙소\s*배정[\s\S]*")
-    roomSummary = []
-    if roomBlock:
-        blocks = re.split(r"\n\s*(\d+반)\s*\n", roomBlock)  # ["...", "1반", "섹션", "2반", "섹션", ...]
-        for i in range(1, len(blocks), 2):
-            klass = blocks[i]
-            sect  = blocks[i+1] if i+1 < len(blocks) else ""
-            rooms = re.findall(r"(오션[A-D]?|벨|필드)\s*[A-Z]?\s*\d+호", sect)
-            females = re.findall(r"\(여\s*\d+\)", sect)
-            males   = re.findall(r"\(남\s*\d+\)", sect)
-            roomSummary.append({
-                "반": klass,
-                "객실수(추정)": len(rooms),
-                "남 객실(표기수)": len(males),
-                "여 객실(표기수)": len(females),
-            })
+## 안전사고 예방 요약
+""" 
+    for sec, items in SAFETY_SECTIONS.items():
+        md += f"\n### {sec}\n- " + "\n- ".join(items) + "\n"
+    md += "\n---\n※ 우천·현지 사정에 따라 일부 프로그램은 실내 활동으로 대체될 수 있습니다.\n"
+    return md
 
-    # ----- 부록(학교폭력의 유형 등) -----
-    appendixBlock = _match_block(t, r"\[\s*학교폭력의\s*유형\s*\][\s\S]*")
+# -----------------------
+# 사이드바
+# -----------------------
+with st.sidebar:
+    st.title("🏕️ 수련활동 대시보드")
+    st.caption("2025학년도 1학년 사전안전교육(배부용)")
+    page = st.radio("메뉴", ["개요", "체크리스트", "일정표", "안전수칙", "숙소 배정", "다운로드"])
+    st.divider()
+    st.info("날짜: 2025-10-27(월) ~ 10-29(수)\n장소: 청포대썬셋수련원")
 
-    return {
-        "tripRange": tripRange, "lodging": lodging,
-        "meetTime": meetTime,   "meetPlace": meetPlace,
-        "required": required,   "banned": banned,
-        "rules": rules,         "safetyParts": safetyParts,
-        "sexualViolenceTips": sexualViolenceTips,
-        "scheduleBlock": scheduleBlock or "",
-        "programHighlights": programHighlights,
-        "roomBlock": roomBlock or "",
-        "roomSummary": roomSummary,
-        "appendixBlock": appendixBlock or ""
-    }
+# -----------------------
+# 상단 헤더
+# -----------------------
+st.markdown(
+    """
+    <style>
+      .big-title {font-size: 30px; font-weight: 800;}
+      .sub {color:#666;}
+      .bullet {line-height:1.7;}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-def df_or_empty(title, rows):
-    st.markdown(f"**{title}**")
-    if rows:
-        st.dataframe(pd.DataFrame({"항목": rows}), use_container_width=True, hide_index=True)
-    else:
-        st.info("해당 섹션을 문서에서 찾지 못했습니다.")
+st.markdown('<div class="big-title">2025학년도 1학년 수련활동 사전안전교육</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub">학생·보호자·교사용 안내를 한 곳에서 확인하세요.</div>', unsafe_allow_html=True)
+st.divider()
 
-def pills(items):
-    if not items: return
-    st.markdown("".join([f"<span class='badge'>{x}</span>" for x in items]), unsafe_allow_html=True)
+# -----------------------
+# 페이지별 렌더
+# -----------------------
+if page == "개요":
+    col1, col2, col3 = st.columns([1.1, 1, 1])
+    with col1:
+        st.subheader("기본 계획")
+        st.write(f"**일정:** {BASIC_INFO['일정']}")
+        st.write(f"**숙소:** {BASIC_INFO['숙소']} (☎ {BASIC_INFO['숙소 연락처']})")
+        st.write(f"**집합:** {BASIC_INFO['집합 일시']} · {BASIC_INFO['집합 장소']}")
+        st.write(f"**버스 탑승:** {BASIC_INFO['버스 탑승']}")
+        st.warning("날씨·현지 사정에 따라 일부 프로그램은 변경될 수 있습니다.")
+    with col2:
+        st.subheader("필수 준비물")
+        st.markdown("<div class='bullet'>" + "<br>".join(f"• {x}" for x in REQUIRED_ITEMS) + "</div>", unsafe_allow_html=True)
+    with col3:
+        st.subheader("반입 금지 물품")
+        st.markdown("<div class='bullet'>" + "<br>".join(f"• {x}" for x in BANNED_ITEMS) + "</div>", unsafe_allow_html=True)
 
-# =========================
-# 본문 렌더링
-# =========================
-if not PDF_PATH.exists():
-    st.error(f"PDF 파일을 찾을 수 없습니다: {PDF_PATH.name}\n\napp.py와 같은 폴더에 PDF를 두고 실행해 주세요.")
-    st.stop()
+elif page == "체크리스트":
+    st.subheader("개인 준비물 체크리스트")
+    if "checklist" not in st.session_state:
+        st.session_state.checklist = {item: False for item in REQUIRED_ITEMS}
 
-with st.spinner("PDF 텍스트 추출 중..."):
-    raw_text = extract_text_from_pdf(PDF_PATH)
+    cols = st.columns(2)
+    for i, item in enumerate(REQUIRED_ITEMS):
+        with cols[i % 2]:
+            st.session_state.checklist[item] = st.checkbox(item, value=st.session_state.checklist[item])
 
-with st.spinner("문서 구조 분석 중..."):
-    data = parse_doc(raw_text)
+    done_count = sum(1 for v in st.session_state.checklist.values() if v)
+    st.progress(done_count / len(REQUIRED_ITEMS))
+    st.caption(f"완료: {done_count} / {len(REQUIRED_ITEMS)}")
 
-# ===== 상단 핵심 카드 =====
-st.subheader("🍃 기본 계획")
-c1, c2, c3 = st.columns(3)
-with c1:
-    st.metric("일정", data["tripRange"] or "미탐지")
-    st.caption("문서의 <기본 계획>에서 추출")
-with c2:
-    st.metric("숙소", data["lodging"] or "미탐지")
-    st.caption("숙소명 / 연락처")
-with c3:
-    st.metric("집합", data["meetTime"] or "미탐지")
-    st.caption(f"장소: {data['meetPlace'] or '미탐지'}")
+    # 다운로드(완료 항목만)
+    checked = [k for k, v in st.session_state.checklist.items() if v]
+    md = "# 개인 준비물 체크리스트(완료)\n\n" + "\n".join(f"- [x] {x}" for x in checked)
+    st.download_button("완료 항목 내보내기 (Markdown)", md.encode("utf-8"), file_name="checklist_done.md")
 
-st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
+elif page == "일정표":
+    st.subheader("주요 일정표")
+    st.dataframe(schedule_df, use_container_width=True)
+    st.download_button("일정표 다운로드 (CSV)", to_csv_bytes(schedule_df), file_name="schedule.csv")
 
-# ===== 탭 =====
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "🧳 준비물·금지물품", "✅ 준수사항", "🛡 안전교육(①~⑥)", "📖 프로그램(3일)", "🏠 숙소 배정", "📎 부록"
-])
+    st.info("※ 우천 시 실내 대체 프로그램: 도전 골든벨, 창의적 도미노, 도전 99초, 공동체 활동, 전지신문 만들기")
 
-with tab1:
-    colA, colB = st.columns(2)
-    with colA:
-        df_or_empty("📝 필수 준비물", data["required"])
-    with colB:
-        df_or_empty("🚫 반입 금지 물품", data["banned"])
+elif page == "안전수칙":
+    st.subheader("안전사고 예방 교육")
+    tabs = st.tabs(list(SAFETY_SECTIONS.keys()))
+    for tab, (sec, items) in zip(tabs, SAFETY_SECTIONS.items()):
+        with tab:
+            st.markdown("<div class='bullet'>" + "<br>".join(f"• {x}" for x in items) + "</div>", unsafe_allow_html=True)
 
-with tab2:
-    st.markdown("### 학생 기본 준수사항")
-    if data["rules"]:
-        for i, r in enumerate(data["rules"], 1):
-            st.markdown(f"{i}. {r}")
-    else:
-        st.info("문서에서 '학생 기본 준수사항' 섹션을 찾지 못했습니다.")
+    st.warning("학교폭력·성폭력 등 위기 상황 발생 시 즉시 인솔교사에게 신고하세요.")
 
-with tab3:
-    st.markdown("### 안전사고 예방 교육 (①~⑥)")
-    if data["safetyParts"]:
-        for k, v in data["safetyParts"].items():
-            with st.expander(k, expanded=False):
-                for it in v:
-                    st.markdown(f"- {it}")
-    else:
-        st.info("문서에서 '안전사고 예방 교육' 섹션을 찾지 못했습니다.")
-    if data["sexualViolenceTips"]:
-        st.markdown("### ※ 성폭력 예방")
-        for it in data["sexualViolenceTips"]:
-            st.markdown(f"- {it}")
+elif page == "숙소 배정":
+    st.subheader("학생 숙소 배정(요약)")
+    st.dataframe(dorm_df, use_container_width=True, height=380)
+    st.download_button("숙소 배정표 다운로드 (CSV)", to_csv_bytes(dorm_df), file_name="dorm_assignment.csv")
 
-with tab4:
-    st.markdown("### 원문 블록")
-    st.markdown("<div class='code-like'>"+(data["scheduleBlock"] or "시간표 원문 블록을 탐지하지 못했습니다.")+"</div>", unsafe_allow_html=True)
-    st.markdown("### 하이라이트")
-    if data["programHighlights"]:
-        pills(data["programHighlights"])
-    else:
-        st.info("하이라이트 키워드를 찾지 못했습니다. (문서 포맷 차이 가능)")
+    # 간단한 검색
+    st.divider()
+    q = st.text_input("반/객실 검색", placeholder="예: 3반, 오션D, 벨 201 ...")
+    if q:
+        mask = dorm_df.apply(lambda row: row.astype(str).str.contains(q, case=False).any(), axis=1)
+        st.dataframe(dorm_df[mask], use_container_width=True)
 
-with tab5:
-    st.markdown("### 원문 블록")
-    st.markdown("<div class='code-like'>"+(data["roomBlock"] or "숙소 배정 원문 블록을 탐지하지 못했습니다.")+"</div>", unsafe_allow_html=True)
-    if data["roomSummary"]:
-        st.markdown("### 반별 요약")
-        st.dataframe(pd.DataFrame(data["roomSummary"]), use_container_width=True, hide_index=True)
-    else:
-        st.info("반별 요약을 생성하지 못했습니다. (표/줄바꿈 포맷 차이 가능)")
+elif page == "다운로드":
+    st.subheader("배포용 파일 내려받기")
+    # 학생 배부용 MD
+    md_text = markdown_student_handout()
+    st.download_button("학생 안내문 (Markdown)", md_text.encode("utf-8"), file_name="학생_안내문.md")
 
-with tab6:
-    if data["appendixBlock"]:
-        st.markdown("### 부록(학교폭력의 유형 등)")
-        st.markdown("<div class='code-like'>"+data["appendixBlock"]+"</div>", unsafe_allow_html=True)
-    else:
-        st.info("부록 섹션을 탐지하지 못했습니다.")
+    # 일정/숙소 CSV 묶음 zip (메모리 압축)
+    import zipfile
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("schedule.csv", schedule_df.to_csv(index=False))
+        zf.writestr("dorm_assignment.csv", dorm_df.to_csv(index=False))
+        zf.writestr("student_handout.md", md_text)
+    st.download_button("일정·숙소·안내문 묶음(ZIP)", data=zip_buf.getvalue(), file_name="수련활동_배포자료.zip")
 
-# ===== 내려받기(학부모 안내문 초안) =====
-st.markdown("<hr class='soft'/>", unsafe_allow_html=True)
-st.subheader("👨‍👩‍👧 학부모 안내문 초안")
-parent_note = f"""[가정 통신문 안내]
-
-1. 일정: {data['tripRange'] or '(문서에서 탐지)'}
-2. 숙소: {data['lodging'] or '(문서에서 탐지)'}
-3. 집합 일시/장소: {data['meetTime'] or '(문서에서 탐지)'} / {data['meetPlace'] or '(문서에서 탐지)'}
-4. 준비물: {", ".join(data['required']) or '(문서 참조)'}
-5. 반입 금지: {", ".join(data['banned']) or '(문서 참조)'}
-6. 기본 준수사항(요약): {", ".join(data['rules'][:5]) or '(문서 참조)'}
-
-※ 상세 시간표와 숙소 배정은 학교 사정에 따라 변경될 수 있습니다.
-"""
-st.code(parent_note, language="markdown")
-st.download_button("안내문 .txt 다운로드", parent_note.encode("utf-8"),
-                   file_name="parent_note.txt", mime="text/plain")
-
-# 디버그용 원문 텍스트 보기
-with st.expander("🔎 원문 전체 텍스트 (디버그용)"):
-    st.text(raw_text)
+# 푸터
+st.divider()
+st.caption("© 2025 수련활동 사전안전교육 • 본 대시보드는 배부용 문서를 바탕으로 구성되었습니다.")
